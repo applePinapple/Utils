@@ -233,36 +233,56 @@ def ocr_with_paddleocr(image_path, output_file=None):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("用法: python ocr_image.py <图片路径> [选项]")
-        print("选项:")
-        print("  --output <文件路径>      指定输出文件路径 (默认: 原文件名_ocr.txt)")
+    if len(sys.argv) < 3:
+        print("用法: python ocr_image_multi.py <图片文件夹路径> <目标文件夹路径> [目标文件名称初始坐标] [选项]")
+        print("示例: python ocr_image_multi.py ./images ./output 1 --paddle")
+        print("\n参数:")
+        print("  <图片文件夹路径>         包含图片的文件夹路径")
+        print("  <目标文件夹路径>         结果输出文件夹路径")
+        print("  [目标文件名称初始坐标]   输出文件名的起始数字 (默认: 1)，格式为 stage-{坐标}.txt")
+        print("\n选项:")
         print("  --chunk-height <高度>    指定切片高度 (默认: 2000)")
         print("  --overlap <像素>         指定切片重叠像素 (默认: 200)")
         print("  --no-enhance             禁用图像增强预处理")
         print("  --paddle                 使用 PaddleOCR 引擎 (默认: EasyOCR)")
         sys.exit(1)
     
-    image_path = sys.argv[1]
+    input_folder = sys.argv[1]
+    output_folder = sys.argv[2]
     
-    if not Path(image_path).exists():
-        print(f"错误: 图片文件不存在: {image_path}")
+    if not Path(input_folder).exists():
+        print(f"错误: 图片文件夹不存在: {input_folder}")
         sys.exit(1)
-    
-    # 解析参数
-    output_file = None
+        
+    # 创建输出文件夹
+    if not Path(output_folder).exists():
+        try:
+            os.makedirs(output_folder)
+            print(f"已创建输出文件夹: {output_folder}")
+        except Exception as e:
+            print(f"错误: 无法创建输出文件夹: {e}")
+            sys.exit(1)
+
+    # 解析初始坐标
+    start_index = 1
+    arg_idx = 3
+    if len(sys.argv) > 3 and not sys.argv[3].startswith('--'):
+        try:
+            start_index = int(sys.argv[3])
+            arg_idx = 4
+        except ValueError:
+            print(f"警告: 第三个参数 '{sys.argv[3]}' 不是有效的整数，将使用默认起始坐标 1")
+            
+    # 解析选项参数
     chunk_height = 2000
     overlap = 200
     enhance = True
     use_paddle = False
     
-    i = 2
+    i = arg_idx
     while i < len(sys.argv):
         arg = sys.argv[i]
-        if arg == '--output' and i + 1 < len(sys.argv):
-            output_file = sys.argv[i + 1]
-            i += 2
-        elif arg == '--chunk-height' and i + 1 < len(sys.argv):
+        if arg == '--chunk-height' and i + 1 < len(sys.argv):
             chunk_height = int(sys.argv[i + 1])
             i += 2
         elif arg == '--overlap' and i + 1 < len(sys.argv):
@@ -275,18 +295,53 @@ def main():
             use_paddle = True
             i += 1
         else:
-            print(f"未知参数: {arg}")
-            sys.exit(1)
+            print(f"忽略未知参数: {arg}")
+            i += 1
+
+    # 获取并排序图片文件
+    supported_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff'}
+    image_files = []
+    for f in os.listdir(input_folder):
+        if Path(f).suffix.lower() in supported_extensions:
+            image_files.append(f)
     
-    # 如果没有指定输出文件,自动生成
-    if not output_file:
-        output_file = Path(image_path).stem + '_ocr.txt'
+    # 简单排序，如果需要更智能的数字排序可以后续优化
+    image_files.sort()
     
-    # 选择OCR方法
-    if use_paddle:
-        ocr_with_paddleocr(image_path, output_file)
-    else:
-        ocr_with_easyocr_optimized(image_path, output_file, chunk_height, overlap, enhance)
+    if not image_files:
+        print(f"警告: 在 {input_folder} 中未找到支持的图片文件")
+        sys.exit(0)
+        
+    print(f"找到 {len(image_files)} 张图片，准备处理...")
+    print(f"输出目录: {output_folder}")
+    print(f"起始文件名: stage-{start_index}.txt")
+    print("-" * 50)
+    
+    # 循环处理图片
+    current_index = start_index
+    for idx, filename in enumerate(image_files):
+        image_path = os.path.join(input_folder, filename)
+        output_filename = f"stage-{current_index}.txt"
+        output_path = os.path.join(output_folder, output_filename)
+        
+        print(f"\n[{idx+1}/{len(image_files)}] 正在处理: {filename} -> {output_filename}")
+        
+        try:
+            if use_paddle:
+                ocr_with_paddleocr(image_path, output_path)
+            else:
+                ocr_with_easyocr_optimized(image_path, output_path, chunk_height, overlap, enhance)
+            
+            print(f"完成: {output_filename}")
+        except Exception as e:
+            print(f"处理图片 {filename} 时发生错误: {e}")
+            import traceback
+            traceback.print_exc()
+            
+        current_index += 1
+        
+    print("\n" + "=" * 50)
+    print("所有任务处理完成！")
 
 
 if __name__ == '__main__':
